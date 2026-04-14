@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FDC Rawtrace 分析</title>
+  <style>
+    :root {
+      --theme_text: #181d26;
+      --theme_cta: #1b61c9;
+      --theme_surface: #ffffff;
+      --theme_surface_subtle: #f8fafc;
+      --theme_border: #e0e2e6;
+      --theme_text_weak: rgba(4, 14, 32, 0.69);
+      --theme_shadow_card:
+        rgba(0, 0, 0, 0.32) 0px 0px 1px,
+        rgba(0, 0, 0, 0.08) 0px 0px 2px,
+        rgba(45, 127, 249, 0.28) 0px 1px 3px,
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 0.5px inset;
+      --theme_shadow_soft: rgba(15, 48, 106, 0.05) 0px 0px 20px;
+      --radius_btn: 12px;
+      --radius_card: 16px;
+      --radius_input: 12px;
+    }
+    * { box-sizing: border-box; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    body {
+      margin: 0;
+      font-family: Haas, -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      color: var(--theme_text);
+      background: var(--theme_surface);
+      letter-spacing: 0.1px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) 1fr;
+      height: 100vh;
+      min-height: 0;
+      align-items: stretch;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
+    }
+    .panel {
+      border-right: 1px solid var(--theme_border);
+      padding: 20px 20px 24px;
+      background: var(--theme_surface_subtle);
+      box-shadow: var(--theme_shadow_soft);
+      max-height: 100vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 20px;
+      letter-spacing: 0.12px;
+    }
+    label {
+      display: block;
+      font-size: 0.8125rem;
+      color: var(--theme_text_weak);
+      margin-bottom: 6px;
+      letter-spacing: 0.08px;
+    }
+    input[type="text"], textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--theme_border);
+      border-radius: var(--radius_input);
+      font-size: 0.9375rem;
+      background: var(--theme_surface);
+      color: var(--theme_text);
+      letter-spacing: 0.08px;
+    }
+    textarea { min-height: 72px; resize: vertical; font-family: inherit; }
+    .param-bundle {
+      background: var(--theme_surface);
+      border: 1px solid var(--theme_border);
+      border-radius: var(--radius_input);
+      padding: 12px 12px 10px;
+      box-shadow: var(--theme_shadow_soft);
+    }
+    .param-bundle > .label-block {
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+    .param-search {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      background: var(--theme_surface_subtle);
+      color: var(--theme_text);
+      margin-bottom: 8px;
+    }
+    .param-search:focus {
+      outline: none;
+      border-color: rgba(27, 97, 201, 0.45);
+      background: var(--theme_surface);
+    }
+    .param-search:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .param-list {
+      max-height: min(132px, 22vh);
+      overflow-y: auto;
+      overflow-x: hidden;
+      border-radius: 8px;
+      padding: 4px 6px;
+      background: var(--theme_surface_subtle);
+    }
+    .param-list::-webkit-scrollbar { width: 6px; }
+    .param-list::-webkit-scrollbar-thumb {
+      background: rgba(27, 97, 201, 0.22);
+      border-radius: 6px;
+    }
+    .param-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 4px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-radius: 8px;
+      letter-spacing: 0.07px;
+    }
+    .param-item:hover { background: rgba(27, 97, 201, 0.06); }
+    .param-item input { margin-top: 3px; flex-shrink: 0; accent-color: var(--theme_cta); }
+    .param-item span { flex: 1; line-height: 1.35; }
+    .param-empty {
+      font-size: 0.875rem;
+      color: var(--theme_text_weak);
+      padding: 8px 4px;
+    }
+    .row { margin-bottom: 16px; }
+    .row-dt { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button.primary {
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px 24px;
+      background: var(--theme_cta);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius_btn);
+      font-size: 1rem;
+      font-weight: 500;
+      letter-spacing: 0.08px;
+      cursor: pointer;
+      box-shadow: rgba(45, 127, 249, 0.28) 0px 1px 3px;
+    }
+    button.primary:hover { filter: brightness(1.05); }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .viewer {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      flex: 1;
+      padding: 24px;
+      background: var(--theme_surface_subtle);
+      overflow: hidden;
+    }
+    .chart-empty {
+      border: 1px dashed var(--theme_border);
+      border-radius: var(--radius_card);
+      background: var(--theme_surface);
+      color: var(--theme_text_weak);
+      font-size: 0.9375rem;
+      letter-spacing: 0.1px;
+      padding: 32px 24px;
+      text-align: center;
+      box-shadow: var(--theme_shadow_soft);
+    }
+    .chart-workspace {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+    .thumb-strip-wrap {
+      flex: 0 0 auto;
+    }
+    .thumb-strip-label {
+      font-size: 0.8125rem;
+      color: var(--theme_text_weak);
+      letter-spacing: 0.1px;
+      margin-bottom: 8px;
+    }
+    .thumb-strip {
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 4px 4px 12px;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+    }
+    .thumb-strip::-webkit-scrollbar { height: 8px; }
+    .thumb-strip::-webkit-scrollbar-thumb {
+      background: rgba(27, 97, 201, 0.25);
+      border-radius: 8px;
+    }
+    .thumb-item {
+      flex: 0 0 auto;
+      width: 182px;
+      scroll-snap-align: start;
+      background: var(--theme_surface);
+      border: 1px solid var(--theme_border);
+      border-radius: 12px;
+      box-shadow: var(--theme_shadow_card);
+      cursor: pointer;
+      overflow: hidden;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .thumb-item:hover { border-color: rgba(27, 97, 201, 0.35); }
+    .thumb-item.is-selected {
+      border-color: var(--theme_cta);
+      box-shadow:
+        rgba(0, 0, 0, 0.32) 0px 0px 1px,
+        rgba(45, 127, 249, 0.35) 0px 0px 0px 2px,
+        rgba(45, 127, 249, 0.22) 0px 2px 8px;
+    }
+    .thumb-plot {
+      width: 100%;
+      height: 118px;
+      pointer-events: none;
+    }
+    .thumb-caption {
+      font-size: 0.6875rem;
+      line-height: 1.25;
+      color: var(--theme_text);
+      padding: 6px 8px 8px;
+      border-top: 1px solid var(--theme_border);
+      max-height: 2.6em;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .big-panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--theme_surface);
+      border: 1px solid var(--theme_border);
+      border-radius: var(--radius_card);
+      box-shadow: var(--theme_shadow_card);
+      overflow: hidden;
+      justify-content: flex-start;
+    }
+    .big-panel__head {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--theme_border);
+    }
+    .big-panel__title {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      letter-spacing: 0.08px;
+      color: var(--theme_text);
+    }
+    .big-panel__meta {
+      font-size: 0.8125rem;
+      color: var(--theme_text_weak);
+      letter-spacing: 0.1px;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .big-plot {
+      flex: 1;
+      min-height: 280px;
+      width: 100%;
+      min-width: 0;
+    }
+    .label-block {
+      display: block;
+      font-size: 0.8125rem;
+      color: var(--theme_text_weak);
+      margin-bottom: 6px;
+    }
+    .hint { font-size: 0.8125rem; color: var(--theme_text_weak); margin-top: 8px; letter-spacing: 0.1px; }
+    .err { color: #b91c1c; font-size: 0.875rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="panel">
+      <h1>FDC Rawtrace</h1>
+      <div class="row">
+        <label for="wafers">Wafer ID（每行一个或逗号分隔）</label>
+        <textarea id="wafers" placeholder="W001&#10;W002"></textarea>
+      </div>
+      <div class="row">
+        <label for="fab">Fab</label>
+        <select id="fab"></select>
+      </div>
+      <div class="row-dt">
+        <div>
+          <label for="t0">开始时间</label>
+          <input type="datetime-local" id="t0" />
+        </div>
+        <div>
+          <label for="t1">结束时间</label>
+          <input type="datetime-local" id="t1" />
+        </div>
+      </div>
+      <div class="row">
+        <label for="chamber">Chamber</label>
+        <select id="chamber" disabled></select>
+      </div>
+      <div class="row">
+        <label for="step">Step</label>
+        <select id="step" disabled></select>
+      </div>
+      <div class="row">
+        <div class="param-bundle">
+          <span class="label-block">Parameter（勾选要展示的项目）</span>
+          <label class="sr-only" for="paramSearch">搜索 Parameter</label>
+          <input type="text" id="paramSearch" class="param-search" placeholder="搜索 id 或名称，过滤列表" autocomplete="off" disabled />
+          <div id="paramList" class="param-list" aria-live="polite"></div>
+        </div>
+      </div>
+      <button type="button" class="primary" id="loadBtn">加载图表</button>
+      <p class="hint">切换至 Step「S10」时左侧会列出 10 个 param，并默认全部勾选。可取消部分后再加载。右侧为缩略图条 + 下方大图；后端按原始数据中的 process_step 列分段，大图用竖线标出各段起点（不在坐标与悬停中显示 process_step）。</p>
+      <div class="err" id="err"></div>
+    </aside>
+    <main class="viewer">
+      <div id="chartEmpty" class="chart-empty">选择条件后点击「加载图表」，上方为参数缩略图，下方为当前选中参数的大图。</div>
+      <div id="chartWorkspace" class="chart-workspace" hidden>
+        <div class="thumb-strip-wrap">
+          <div class="thumb-strip-label">参数缩略图（左右滑动，点击切换）</div>
+          <div id="thumbStrip" class="thumb-strip"></div>
+        </div>
+        <div class="big-panel">
+          <header class="big-panel__head">
+            <div id="bigTitle" class="big-panel__title">—</div>
+            <div id="bigMeta" class="big-panel__meta">—</div>
+          </header>
+          <div id="bigPlot" class="big-plot js-plotly-chart"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const err = $("err");
+
+    const plotlyConfig = {
+      responsive: true,
+      scrollZoom: true,
+      displayModeBar: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ["lasso2d", "select2d"],
+    };
+
+    const thumbPlotlyConfig = {
+      staticPlot: true,
+      responsive: true,
+      displayModeBar: false,
+      displaylogo: false,
+    };
+
+    let __figures = [];
+    let __selectedIdx = 0;
+
+    const PROCESS_STEP_VLINE_NAME = "__process_step_vline__";
+    function dataWithoutProcessStepVlines(data) {
+      return JSON.parse(JSON.stringify(data)).filter((tr) => tr.name !== PROCESS_STEP_VLINE_NAME);
+    }
+
+    function thumbLayout(layout) {
+      const L = JSON.parse(JSON.stringify(layout));
+      L.height = 118;
+      L.width = 178;
+      L.autosize = false;
+      L.margin = { l: 34, r: 4, t: 2, b: 22 };
+      L.legend = { visible: false };
+      L.title = null;
+      if (L.annotations) L.annotations = [];
+      L.shapes = [];
+      return L;
+    }
+
+    function measureBigPlotLayout(itemLayout) {
+      const panel = document.querySelector(".big-panel");
+      const bp = $("bigPlot");
+      if (!panel || !bp) return null;
+      const head = panel.querySelector(".big-panel__head");
+      const pad = 6;
+      const w = Math.max(240, panel.clientWidth - pad);
+      const innerH = panel.clientHeight - (head ? head.offsetHeight : 0) - pad;
+      const h = Math.max(320, innerH);
+      if (w < 50 || h < 80) return null;
+      const L = JSON.parse(JSON.stringify(itemLayout));
+      L.width = w;
+      L.height = h;
+      L.autosize = false;
+      return L;
+    }
+
+    function cloneFigureItem(item) {
+      return {
+        param_id: item.param_id,
+        label: item.label,
+        data: JSON.parse(JSON.stringify(item.data)),
+        layout: JSON.parse(JSON.stringify(item.layout)),
+      };
+    }
+
+    async function getJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    function parseWaferIds(raw) {
+      return raw
+        .split(/[\n,;，；\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function purgeAllPlots() {
+      if (typeof Plotly === "undefined") return;
+      document.querySelectorAll(".js-plotly-chart").forEach((el) => {
+        try {
+          if (el && el.data) Plotly.purge(el);
+        } catch (_) {}
+      });
+      document.querySelectorAll(".js-thumb-plot").forEach((el) => {
+        try {
+          if (el && el.data) Plotly.purge(el);
+        } catch (_) {}
+      });
+    }
+
+    function resizeAllPlots() {
+      if (typeof Plotly === "undefined") return;
+      document.querySelectorAll(".js-thumb-plot").forEach((el) => {
+        try {
+          if (el && el.data) Plotly.Plots.resize(el);
+        } catch (_) {}
+      });
+      const bp = $("bigPlot");
+      try {
+        if (bp && bp.data) Plotly.Plots.resize(bp);
+      } catch (_) {}
+    }
+
+    function buildMetaCaption() {
+      const parts = [];
+      const ch = $("chamber") && $("chamber").value;
+      const st = $("step") && $("step").value;
+      if (ch || st) parts.push([ch, st].filter(Boolean).join(" / "));
+      const t0 = $("t0") && $("t0").value;
+      const t1 = $("t1") && $("t1").value;
+      if (t0 && t1) parts.push(`时间: ${t0} — ${t1}`);
+      else if (t0 || t1) parts.push("时间: (部分指定)");
+      return parts.join(" · ");
+    }
+
+    function selectFigure(i, retry) {
+      if (!__figures.length || i < 0 || i >= __figures.length) return;
+      retry = retry || 0;
+      __selectedIdx = i;
+      document.querySelectorAll(".thumb-item").forEach((el, j) => {
+        el.classList.toggle("is-selected", j === i);
+      });
+      const item = __figures[i];
+      $("bigTitle").textContent = item.label || item.param_id;
+      $("bigMeta").textContent = buildMetaCaption() || "—";
+      const bp = $("bigPlot");
+      const lay = measureBigPlotLayout(item.layout);
+      if (!lay) {
+        if (retry < 12) requestAnimationFrame(() => selectFigure(i, retry + 1));
+        return;
+      }
+      const data = JSON.parse(JSON.stringify(item.data));
+      if (bp.data) Plotly.react("bigPlot", data, lay, plotlyConfig);
+      else Plotly.newPlot("bigPlot", data, lay, plotlyConfig);
+      requestAnimationFrame(() => {
+        try {
+          if (bp && bp.data) Plotly.Plots.resize(bp);
+        } catch (_) {}
+      });
+      const strip = $("thumbStrip");
+      const node = strip && strip.children[i];
+      if (node && node.scrollIntoView) node.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    }
+
+    async function loadFabs() {
+      const list = await getJSON("/api/meta/fabs");
+      $("fab").innerHTML = list.map((x) => `<option value="${x.id}">${x.label}</option>`).join("");
+    }
+
+    async function loadChambers(fabId) {
+      const list = await getJSON(`/api/meta/chambers?fab_id=${encodeURIComponent(fabId)}`);
+      const sel = $("chamber");
+      sel.innerHTML = list.map((x) => `<option value="${x.id}">${x.label}</option>`).join("");
+      sel.disabled = list.length === 0;
+    }
+
+    async function loadSteps(chamberId) {
+      const list = await getJSON(`/api/meta/steps?chamber_id=${encodeURIComponent(chamberId)}`);
+      const sel = $("step");
+      sel.innerHTML = list.map((x) => `<option value="${x.id}">${x.label}</option>`).join("");
+      sel.disabled = list.length === 0;
+    }
+
+    let paramOptionsAll = [];
+    let paramCheckedIds = new Set();
+
+    function renderParamList() {
+      const box = $("paramList");
+      box.innerHTML = "";
+      if (!paramOptionsAll.length) {
+        box.innerHTML = '<div class="param-empty">当前 Step 无参数</div>';
+        return;
+      }
+      paramOptionsAll.forEach(({ id, label }) => {
+        const lab = document.createElement("label");
+        lab.className = "param-item";
+        lab.dataset.hay = `${id} ${label}`.toLowerCase();
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = id;
+        cb.checked = paramCheckedIds.has(id);
+        cb.addEventListener("change", () => {
+          if (cb.checked) paramCheckedIds.add(id);
+          else paramCheckedIds.delete(id);
+        });
+        const span = document.createElement("span");
+        span.textContent = label;
+        lab.appendChild(cb);
+        lab.appendChild(span);
+        box.appendChild(lab);
+      });
+      applyParamFilter();
+    }
+
+    function applyParamFilter() {
+      const q = ($("paramSearch").value || "").trim().toLowerCase();
+      document.querySelectorAll("#paramList .param-item").forEach((el) => {
+        const hay = el.dataset.hay || "";
+        el.style.display = !q || hay.includes(q) ? "" : "none";
+      });
+    }
+
+    async function loadParams(stepId) {
+      const list = await getJSON(`/api/meta/params?step_id=${encodeURIComponent(stepId)}`);
+      paramOptionsAll = list;
+      // 默认勾选该 Step 下全部参数（S10 演示为 10 个）；避免只选第一个导致右侧只有一张图
+      paramCheckedIds = new Set(list.map((p) => p.id));
+      $("paramSearch").value = "";
+      $("paramSearch").disabled = list.length === 0;
+      renderParamList();
+    }
+
+    function selectedParamIds() {
+      return paramOptionsAll.filter((p) => paramCheckedIds.has(p.id)).map((p) => p.id);
+    }
+
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(resizeAllPlots);
+    });
+
+    $("paramSearch").addEventListener("input", applyParamFilter);
+
+    $("loadBtn").onclick = async () => {
+      err.textContent = "";
+      if (typeof Plotly === "undefined") {
+        err.textContent = "Plotly 未加载（可能被网络拦截）。请检查能否访问 cdn.plot.ly 后刷新页面。";
+        return;
+      }
+      const wafer_ids = parseWaferIds($("wafers").value);
+      if (!wafer_ids.length) {
+        err.textContent = "请至少填写一个 Wafer ID。";
+        return;
+      }
+      const param_ids = selectedParamIds();
+      if (!param_ids.length) {
+        err.textContent = "请至少选择一个 Parameter。";
+        return;
+      }
+      const body = {
+        wafer_ids,
+        fab_id: $("fab").value,
+        chamber_id: $("chamber").value,
+        step_id: $("step").value,
+        param_ids,
+        process_step: null,
+        time_start: $("t0").value ? new Date($("t0").value).toISOString() : null,
+        time_end: $("t1").value ? new Date($("t1").value).toISOString() : null,
+      };
+      $("loadBtn").disabled = true;
+      try {
+        const r = await fetch("/api/chart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const raw = await r.text();
+        if (!r.ok) throw new Error(raw || `HTTP ${r.status}`);
+        let payload;
+        try {
+          payload = JSON.parse(raw);
+        } catch (pe) {
+          throw new Error("接口未返回 JSON，请确认通过 http://127.0.0.1:端口 打开页面，而非直接打开 html 文件。");
+        }
+        if (!payload.figures || !Array.isArray(payload.figures) || !payload.figures.length) {
+          throw new Error("返回数据缺少 figures");
+        }
+        purgeAllPlots();
+        __figures = payload.figures.map(cloneFigureItem);
+        const strip = $("thumbStrip");
+        strip.innerHTML = "";
+        const big = $("bigPlot");
+        if (big && big.data) Plotly.purge(big);
+
+        __figures.forEach((item, i) => {
+          const wrap = document.createElement("div");
+          wrap.className = "thumb-item" + (i === 0 ? " is-selected" : "");
+          wrap.dataset.index = String(i);
+          wrap.setAttribute("role", "button");
+          wrap.tabIndex = 0;
+          wrap.addEventListener("click", () => selectFigure(i));
+          wrap.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              selectFigure(i);
+            }
+          });
+          const plotDiv = document.createElement("div");
+          plotDiv.className = "thumb-plot js-thumb-plot";
+          plotDiv.id = `thumb-plot-${i}`;
+          const cap = document.createElement("div");
+          cap.className = "thumb-caption";
+          cap.textContent = item.label || item.param_id;
+          cap.title = item.label || item.param_id;
+          wrap.appendChild(plotDiv);
+          wrap.appendChild(cap);
+          strip.appendChild(wrap);
+          const tData = dataWithoutProcessStepVlines(item.data);
+          const tLay = thumbLayout(JSON.parse(JSON.stringify(item.layout)));
+          Plotly.newPlot(plotDiv.id, tData, tLay, thumbPlotlyConfig);
+        });
+
+        $("chartEmpty").hidden = true;
+        $("chartWorkspace").hidden = false;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            selectFigure(0);
+            resizeAllPlots();
+          });
+        });
+      } catch (e) {
+        err.textContent = String(e.message || e);
+      } finally {
+        $("loadBtn").disabled = false;
+      }
+    };
+
+    $("fab").onchange = async () => {
+      await loadChambers($("fab").value);
+      await loadSteps($("chamber").value);
+      await loadParams($("step").value);
+    };
+    $("chamber").onchange = async () => {
+      await loadSteps($("chamber").value);
+      await loadParams($("step").value);
+    };
+    $("step").onchange = async () => {
+      await loadParams($("step").value);
+    };
+
+    (async () => {
+      try {
+        await loadFabs();
+        await loadChambers($("fab").value);
+        await loadSteps($("chamber").value);
+        await loadParams($("step").value);
+      } catch (e) {
+        err.textContent =
+          "加载下拉选项失败：" +
+          String(e && e.message ? e.message : e) +
+          "。请用浏览器访问 http://127.0.0.1:8765（或你的服务端口），不要直接双击打开本页；并确认已启动 uvicorn。";
+      }
+    })();
+  </script>
+</body>
+</html>
