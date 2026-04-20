@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FDC 传感器视图</title>
+  <style>
+    :root {
+      --border: #c8c8c8;
+      --blue: #1e6bd6;
+      --step-red: #c62828;
+      --bg: #fff;
+      font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+      font-size: 13px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    .app {
+      display: flex;
+      height: 100vh;
+      max-height: 100dvh;
+      min-height: 520px;
+    }
+
+    /* —— 左侧边栏 —— */
+    .sidebar {
+      flex: 0 0 26%;
+      min-width: 200px;
+      max-width: 280px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      padding: 10px 12px 12px;
+      gap: 12px;
+    }
+
+    .form-block label {
+      display: block;
+      margin-bottom: 4px;
+      color: #222;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .form-row input[type="text"] {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font: inherit;
+    }
+
+    .sensor-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: #fafafa;
+    }
+
+    .sensor-panel__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: #f3f3f3;
+    }
+
+    .sensor-panel__head h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .sensor-panel__actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .sensor-panel__actions button {
+      padding: 3px 10px;
+      font: inherit;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .sensor-panel__actions button:hover {
+      background: #eee;
+    }
+
+    .sensor-table-wrap {
+      flex: 1;
+      overflow: auto;
+      padding: 6px;
+    }
+
+    .sensor-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .sensor-table td {
+      border: 1px solid #ddd;
+      padding: 6px 8px;
+      background: #fff;
+    }
+
+    .sensor-table td:first-child {
+      width: 36px;
+      text-align: center;
+    }
+
+    /* —— 主区 —— */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 10px 12px 12px;
+    }
+
+    .chart-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border: 1px solid #000;
+      background: #fff;
+    }
+
+    .chart-title {
+      text-align: left;
+      padding: 0 0 4px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .chart-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-height: 0;
+      padding: 8px 10px 10px;
+    }
+
+    .chart-plot-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    /* 标题仅在绘图列上方；图例与刻度框顶对齐（第二行） */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-rows: auto minmax(180px, 1fr) auto;
+      gap: 4px 10px;
+      flex: 1;
+      min-height: 0;
+      /* 中间行占满剩余高度时，刻度框要拉高撑满该行，避免出现框下大片空白 */
+      align-items: stretch;
+    }
+
+    .chart-title-cell {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .legend {
+      grid-column: 1;
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      align-self: start;
+      gap: 5px;
+      padding: 0 0 2px 2px;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .plot-frame-wrap {
+      grid-column: 2;
+      grid-row: 2;
+      position: relative;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+      min-height: 180px;
+      border: 1px solid #333;
+      background: #fff;
+    }
+
+    .chart-x-slot {
+      grid-column: 2;
+      grid-row: 3;
+      min-width: 0;
+      padding-top: 0;
+    }
+
+    .legend__item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .legend__dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .plot-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      vertical-align: top;
+    }
+
+    .axis-label-x {
+      text-align: center;
+      font-size: 12px;
+      padding: 0 0 2px;
+    }
+
+    .slider-row {
+      padding: 2px 0 8px;
+      flex-shrink: 0;
+    }
+
+    .range-wrap {
+      position: relative;
+      height: 22px;
+    }
+
+    .range-wrap::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 8px;
+      background: var(--blue);
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    .range-wrap input[type="range"] {
+      position: absolute;
+      left: 0;
+      right: 0;
+      width: 100%;
+      height: 22px;
+      margin: 0;
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .range-wrap input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 18px;
+      border-radius: 2px;
+      background: #fff;
+      border: 1px solid #1a5bb8;
+      box-shadow: 0 1px 2px rgba(0,0,0,.2);
+      pointer-events: auto;
+      cursor: grab;
+      margin-top: -7px;
+    }
+
+    .range-wrap input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 18px;
+      border-radius: 2px;
+      background: #fff;
+      border: 1px solid #1a5bb8;
+      box-shadow: 0 1px 2px rgba(0,0,0,.2);
+      pointer-events: auto;
+      cursor: grab;
+    }
+
+    .range-wrap input[type="range"]::-webkit-slider-runnable-track {
+      height: 8px;
+      background: transparent;
+      border-radius: 2px;
+    }
+
+    .range-wrap input[type="range"]::-moz-range-track {
+      height: 8px;
+      background: transparent;
+      border-radius: 2px;
+    }
+
+    #rangeMin {
+      z-index: 2;
+    }
+
+    #rangeMax {
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="form-block">
+        <div class="form-row">
+          <label for="timeRange">Time_range</label>
+          <input id="timeRange" type="text" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="eqp">eqp</label>
+          <input id="eqp" type="text" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="chamber">chamber</label>
+          <input id="chamber" type="text" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="recipe">recipe</label>
+          <input id="recipe" type="text" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label for="waferId">Wafer_id</label>
+          <input id="waferId" type="text" value="wafer1,wafer2,wafer3" autocomplete="off" />
+        </div>
+      </div>
+
+      <section class="sensor-panel" aria-label="Sensor align">
+        <div class="sensor-panel__head">
+          <h2>Sensor_align</h2>
+          <div class="sensor-panel__actions">
+            <button type="button">import</button>
+            <button type="button">export</button>
+          </div>
+        </div>
+        <div class="sensor-table-wrap">
+          <table class="sensor-table">
+            <tbody>
+              <tr><td><input type="checkbox" /></td><td></td></tr>
+              <tr><td><input type="checkbox" /></td><td></td></tr>
+              <tr><td><input type="checkbox" /></td><td></td></tr>
+              <tr><td><input type="checkbox" /></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div class="chart-shell">
+        <div class="chart-body">
+          <div class="chart-plot-column">
+            <div class="chart-grid">
+              <div class="chart-title-cell">
+                <div class="chart-title">Sensor name</div>
+              </div>
+              <div class="legend" aria-hidden="true">
+                <div class="legend__item"><span class="legend__dot" style="background:#111"></span> wafer1</div>
+                <div class="legend__item"><span class="legend__dot" style="background:#1565c0"></span> wafer2</div>
+                <div class="legend__item"><span class="legend__dot" style="background:#ef6c00"></span> wafer3</div>
+                <div class="legend__item"><span class="legend__dot" style="background:#757575"></span> wafer4</div>
+                <div class="legend__item"><span class="legend__dot" style="background:#2e7d32"></span> wafer5</div>
+              </div>
+              <div class="plot-frame-wrap">
+                <svg class="plot-svg" id="chartSvg" viewBox="0 0 720 252" preserveAspectRatio="none" width="100%" height="100%"></svg>
+              </div>
+              <div class="chart-x-slot">
+                <div class="axis-label-x">time</div>
+                <div class="slider-row">
+                  <div class="range-wrap">
+                    <input type="range" id="rangeMin" min="0" max="100" value="0" />
+                    <input type="range" id="rangeMax" min="0" max="100" value="100" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const svg = document.getElementById("chartSvg");
+
+      /* 刻度框：矩形边框 + 左右刻度；虚线自顶至底；Step 在虚线右侧且与框顶对齐 */
+      const frame = { x: 40, y: 16, w: 644, h: 200 };
+      /* Step + 数字块紧凑排列，避免纵向拉太长 */
+      const textBand = 52;
+      const stackLineGap = 7;
+      const firstStackY = 13;
+      const plotTop = frame.y + textBand;
+      const plotBottom = frame.y + frame.h - 10;
+      const plotH = plotBottom - plotTop;
+
+      const colors = ["#111111", "#1565c0", "#ef6c00", "#757575", "#2e7d32"];
+      const stepXs = [0.22, 0.42, 0.62, 0.82];
+      const stepLabels = ["Step1:", "Step2:", "Step3:", "Step4:"];
+      const stackTexts = ["1+0.1", "1+0.2", "1+0.3", "1+0.4", "1+0.5"];
+
+      function xScale(t) {
+        return frame.x + t * frame.w;
+      }
+
+      function yWave(i, t) {
+        const phase = i * 1.7;
+        const base = 0.5 + 0.18 * Math.sin(t * Math.PI * 4 + phase);
+        const wobble = 0.06 * Math.sin(t * Math.PI * 11 + phase * 0.5);
+        return plotTop + (1 - (base + wobble)) * plotH;
+      }
+
+      function buildPath(i) {
+        const segments = 120;
+        let d = "";
+        for (let s = 0; s <= segments; s++) {
+          const t = s / segments;
+          const x = xScale(t);
+          const y = yWave(i, t);
+          d += (s === 0 ? "M" : "L") + x.toFixed(2) + "," + y.toFixed(2) + " ";
+        }
+        return d.trim();
+      }
+
+      const ns = "http://www.w3.org/2000/svg";
+      function el(name, attrs) {
+        const e = document.createElementNS(ns, name);
+        for (const k in attrs) e.setAttribute(k, attrs[k]);
+        return e;
+      }
+
+      function varBlue() {
+        return getComputedStyle(document.documentElement).getPropertyValue("--blue").trim() || "#1e6bd6";
+      }
+
+      // 刻度框外框
+      svg.appendChild(el("rect", {
+        x: frame.x,
+        y: frame.y,
+        width: frame.w,
+        height: frame.h,
+        fill: "none",
+        stroke: "#333",
+        "stroke-width": 1
+      }));
+
+      // Y 轴刻度（无数字）：仅在曲线区域左侧
+      for (let k = 0; k <= 5; k++) {
+        const y = plotTop + (k / 5) * plotH;
+        svg.appendChild(el("line", {
+          x1: frame.x - 6,
+          y1: y,
+          x2: frame.x,
+          y2: y,
+          stroke: "#666",
+          "stroke-width": 1
+        }));
+      }
+
+      // X 轴刻度：底边
+      const xBottom = frame.y + frame.h;
+      for (let k = 0; k <= 10; k++) {
+        const x = frame.x + (k / 10) * frame.w;
+        svg.appendChild(el("line", {
+          x1: x,
+          y1: xBottom,
+          x2: x,
+          y2: xBottom + 5,
+          stroke: "#666",
+          "stroke-width": 1
+        }));
+      }
+
+      // 折线（曲线区）
+      colors.forEach((stroke, i) => {
+        svg.appendChild(el("path", {
+          d: buildPath(i),
+          fill: "none",
+          stroke,
+          "stroke-width": i === 0 ? 1.6 : 1.4,
+          "stroke-linejoin": "round",
+          "stroke-linecap": "round"
+        }));
+      });
+
+      // 竖直虚线叠在曲线上方
+      stepXs.forEach((tx) => {
+        const xl = xScale(tx);
+        svg.appendChild(el("line", {
+          x1: xl,
+          y1: frame.y,
+          x2: xl,
+          y2: frame.y + frame.h,
+          stroke: varBlue(),
+          "stroke-width": 1,
+          "stroke-dasharray": "5 4"
+        }));
+      });
+
+      // Step 在虚线右侧，顶字与框内上边对齐（hanging）
+      const stepOffset = 5;
+      stepXs.forEach((tx, idx) => {
+        const xl = xScale(tx);
+        const txStep = el("text", {
+          x: xl + stepOffset,
+          y: frame.y + 1,
+          fill: "#c62828",
+          "font-size": "12",
+          "text-anchor": "start",
+          "font-weight": "600",
+          "dominant-baseline": "hanging"
+        });
+        txStep.textContent = stepLabels[idx];
+        svg.appendChild(txStep);
+
+        stackTexts.forEach((txt, row) => {
+          const tEl = el("text", {
+            x: xl + stepOffset,
+            y: frame.y + firstStackY + row * stackLineGap,
+            fill: "#333",
+            "font-size": "9",
+            "text-anchor": "start",
+            "dominant-baseline": "hanging"
+          });
+          tEl.textContent = txt;
+          svg.appendChild(tEl);
+        });
+      });
+
+      // 双滑块：保证 min <= max
+      const rMin = document.getElementById("rangeMin");
+      const rMax = document.getElementById("rangeMax");
+
+      function syncRange() {
+        let a = +rMin.value;
+        let b = +rMax.value;
+        if (a > b) {
+          if (document.activeElement === rMin) rMax.value = a;
+          else rMin.value = b;
+        }
+      }
+      rMin.addEventListener("input", syncRange);
+      rMax.addEventListener("input", syncRange);
+    })();
+  </script>
+</body>
+</html>
